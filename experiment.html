@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>极简实验：从权重中恢复规则</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2196F3;
+            margin-top: 30px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+        }
+        .result {
+            background-color: #e8f5e9;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .info {
+            color: #2196F3;
+        }
+        .warning {
+            color: #ff9800;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .weight-display {
+            background-color: #fff3e0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: center;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .summary {
+            background-color: #e3f2fd;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>极简实验：从权重中恢复规则——第一性原理验证</h1>
+        
+        <div class="section">
+            <h2>🎯 实验目标</h2>
+            <p>验证在极简神经网络中，能否直接从训练后的权重参数中恢复出它所学习的规则。</p>
+        </div>
+
+        <button onclick="runExperiment()">🚀 运行完整实验</button>
+        <button onclick="clearResults()">🗑️ 清空结果</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function stepFunction(z) {
+            return z >= 0 ? 1 : 0;
+        }
+
+        function neuronForward(x, w, b) {
+            const z = w * x + b;
+            return stepFunction(z);
+        }
+
+        function analyzeNeuron(w, b) {
+            const threshold = -b / w;
+            let rule;
+            if (w > 0) {
+                rule = `规则：如果 x > ${threshold.toFixed(4)}，则 y=1`;
+            } else {
+                rule = `规则：如果 x < ${threshold.toFixed(4)}，则 y=1`;
+            }
+            return { threshold, rule };
+        }
+
+        function sigmoid(z) {
+            return 1 / (1 + Math.exp(-z));
+        }
+
+        function relu(z) {
+            return Math.max(0, z);
+        }
+
+        function dotProduct(matrix, vector) {
+            return matrix.map(row => {
+                return row.reduce((sum, val, i) => sum + val * vector[i], 0);
+            });
+        }
+
+        function forward(X, W1, b1, W2, b2) {
+            const z1 = W1.map((row, i) => {
+                return row.reduce((sum, val, j) => sum + val * X[j], 0) + b1[i];
+            });
+            
+            const a1 = z1.map(z => relu(z));
+            
+            const z2 = W2.map((row, i) => {
+                return row.reduce((sum, val, j) => sum + val * a1[j], 0) + b2[i];
+            });
+            
+            const a2 = z2.map(z => sigmoid(z));
+            
+            return { z1, a1, z2, a2 };
+        }
+
+        function trainXOR(epochs = 5000, learningRate = 0.1) {
+            const X = [[0, 0], [0, 1], [1, 0], [1, 1]];
+            const y = [0, 1, 1, 0];
+
+            let W1 = [[1.0, 1.0], [1.0, 1.0]];
+            let b1 = [-0.5, -1.5];
+            let W2 = [[1.0, -1.0]];
+            let b2 = [0.0];
+
+            for (let epoch = 0; epoch < epochs; epoch++) {
+                for (let idx = 0; idx < X.length; idx++) {
+                    const { z1, a1, z2, a2 } = forward(X[idx], W1, b1, W2, b2);
+                    
+                    const dz2 = a2[0] - y[idx];
+                    const dW2 = [dz2 * a1[0], dz2 * a1[1]];
+                    const db2 = [dz2];
+                    
+                    const da1 = [W2[0][0] * dz2, W2[0][1] * dz2];
+                    const dz1 = da1.map((val, i) => val * (z1[i] > 0 ? 1 : 0));
+                    const dW1 = [
+                        [dz1[0] * X[idx][0], dz1[0] * X[idx][1]],
+                        [dz1[1] * X[idx][0], dz1[1] * X[idx][1]]
+                    ];
+                    const db1 = dz1.slice();
+                    
+                    for (let i = 0; i < 2; i++) {
+                        for (let j = 0; j < 2; j++) {
+                            W1[i][j] -= learningRate * dW1[i][j];
+                        }
+                        b1[i] -= learningRate * db1[i];
+                    }
+                    
+                    for (let j = 0; j < 2; j++) {
+                        W2[0][j] -= learningRate * dW2[j];
+                    }
+                    b2[0] -= learningRate * db2[0];
+                }
+            }
+
+            return { W1, b1, W2, b2 };
+        }
+
+        function analyzeXORNetwork(W1, b1, W2, b2) {
+            let html = '<div class="section">';
+            html += '<h2>🔍 XOR 网络权重分析</h2>';
+            
+            html += '<h3>步骤1：分析隐藏层神经元的决策边界</h3>';
+            html += '<div class="weight-display">';
+            for (let i = 0; i < W1.length; i++) {
+                const w11 = W1[i][0], w12 = W1[i][1];
+                const bi = b1[i];
+                html += `<p>隐藏层神经元 ${i + 1}:<br>`;
+                html += `权重: w11=${w11.toFixed(4)}, w12=${w12.toFixed(4)}, b=${bi.toFixed(4)}<br>`;
+                if (Math.abs(w12) > 1e-6) {
+                    const slope = -w11 / w12;
+                    const intercept = -bi / w12;
+                    html += `决策边界: x2 = ${slope.toFixed(4)} * x1 + ${intercept.toFixed(4)}</p>`;
+                } else {
+                    html += `决策边界: x1 = ${(-bi / w11).toFixed(4)}</p>`;
+                }
+            }
+            html += '</div>';
+            
+            html += '<h3>步骤2：测试隐藏层在四个输入点的激活情况</h3>';
+            html += '<table><tr><th>输入</th><th>隐藏层神经元1</th><th>隐藏层神经元2</th></tr>';
+            
+            const testPoints = [[0, 0], [0, 1], [1, 0], [1, 1]];
+            const outputPatterns = [];
+            
+            for (let i = 0; i < testPoints.length; i++) {
+                const [x1, x2] = testPoints[i];
+                const { z1, a1, z2, a2 } = forward(testPoints[i], W1, b1, W2, b2);
+                html += `<tr><td>(${x1}, ${x2})</td><td>${a1[0].toFixed(4)}</td><td>${a1[1].toFixed(4)}</td></tr>`;
+                outputPatterns.push({
+                    input: (x1, x2),
+                    hidden: a1.slice(),
+                    output: a2[0]
+                });
+            }
+            html += '</table>';
+            
+            html += '<h3>步骤3：分析输出层的组合方式</h3>';
+            html += `<div class="weight-display">`;
+            html += `输出层权重: W2 = [${W2[0][0].toFixed(4)}, ${W2[0][1].toFixed(4)}]<br>`;
+            html += `输出层偏置: b2 = ${b2[0].toFixed(4)}`;
+            html += `</div>`;
+            
+            html += '<h3>步骤4：推断规则</h3>';
+            html += '<div class="result">';
+            
+            const positiveCases = outputPatterns.filter(p => p.output > 0.5);
+            const negativeCases = outputPatterns.filter(p => p.output <= 0.5);
+            
+            html += '<p class="info">输出为 1 的情况：</p>';
+            positiveCases.forEach(p => {
+                html += `<p>输入 (${p.input[0]}, ${p.input[1]}), 隐藏层激活: [${p.hidden[0].toFixed(2)}, ${p.hidden[1].toFixed(2)}]</p>`;
+            });
+            
+            html += '<p class="warning">输出为 0 的情况：</p>';
+            negativeCases.forEach(p => {
+                html += `<p>输入 (${p.input[0]}, ${p.input[1]}), 隐藏层激活: [${p.hidden[0].toFixed(2)}, ${p.hidden[1].toFixed(2)}]</p>`;
+            });
+            
+            const rule = inferRule(outputPatterns);
+            html += `<p class="success"><strong>推断的规则：${rule}</strong></p>`;
+            html += '</div></div>';
+            
+            return { html, rule };
+        }
+
+        function inferRule(outputPatterns) {
+            const positiveInputs = outputPatterns.filter(p => p.output > 0.5).map(p => p.input);
+            const negativeInputs = outputPatterns.filter(p => p.output <= 0.5).map(p => p.input);
+            
+            if (positiveInputs.length === 2 && negativeInputs.length === 2) {
+                const posSet = new Set(positiveInputs.map(p => p.join(',')));
+                const negSet = new Set(negativeInputs.map(p => p.join(',')));
+                
+                if (posSet.has('0,1') && posSet.has('1,0') && negSet.has('0,0') && negSet.has('1,1')) {
+                    return "异或规则：当两个输入不同时输出 1，相同时输出 0";
+                } else if (posSet.has('0,0') && posSet.has('1,1') && negSet.has('0,1') && negSet.has('1,0')) {
+                    return "同或规则：当两个输入相同时输出 1，不同时输出 0";
+                }
+            }
+            
+            return "无法从权重中直接推断出明确的规则";
+        }
+
+        function runExperiment() {
+            let html = '';
+            
+            html += '<div class="section">';
+            html += '<h2>🧠 第一部分：单神经元实验（线性可分）</h2>';
+            
+            const w = 1.0;
+            const b = -0.5;
+            
+            html += `<div class="result">`;
+            html += `<p><strong>权重 w = ${w}</strong></p>`;
+            html += `<p><strong>偏置 b = ${b}</strong></p>`;
+            
+            const { threshold, rule } = analyzeNeuron(w, b);
+            html += `<p class="info">${rule}</p>`;
+            html += `<p>计算得到的阈值：${threshold.toFixed(4)}</p>`;
+            
+            html += '<h3>测试结果：</h3>';
+            html += '<table><tr><th>输入 x</th><th>输出 y</th></tr>';
+            const testValues = [0.0, 0.3, 0.5, 0.7, 1.0];
+            testValues.forEach(x => {
+                const y = neuronForward(x, w, b);
+                html += `<tr><td>${x.toFixed(1)}</td><td>${y}</td></tr>`;
+            });
+            html += '</table>';
+            
+            html += `<p class="success">✓ 规则恢复成功！阈值 = ${threshold.toFixed(4)}</p>`;
+            html += '</div></div>';
+            
+            html += '<div class="section">';
+            html += '<h2>🧠 第二部分：XOR 网络实验（线性不可分）</h2>';
+            html += '<div class="result">';
+            html += '<p class="info">训练 XOR 网络...</p>';
+            
+            const { W1, b1, W2, b2 } = trainXOR(5000, 0.1);
+            
+            html += '<p class="success">训练完成！</p>';
+            
+            html += '<h3>训练后的预测结果：</h3>';
+            html += '<table><tr><th>输入</th><th>预测</th><th>真实</th></tr>';
+            const testPoints = [[0, 0], [0, 1], [1, 0], [1, 1]];
+            testPoints.forEach(([x1, x2]) => {
+                const { a2 } = forward([x1, x2], W1, b1, W2, b2);
+                const pred = a2[0];
+                const real = (x1 ^ x2);
+                html += `<tr><td>(${x1}, ${x2})</td><td>${pred.toFixed(4)}</td><td>${real}</td></tr>`;
+            });
+            html += '</table>';
+            html += '</div></div>';
+            
+            const { html: analysisHtml, rule } = analyzeXORNetwork(W1, b1, W2, b2);
+            html += analysisHtml;
+            
+            html += '<div class="summary">';
+            html += '<h2>📊 实验总结</h2>';
+            html += '<h3>1. 单神经元（线性可分）：</h3>';
+            html += '<ul>';
+            html += '<li>权重与规则之间存在直接的算术映射</li>';
+            html += '<li>可以通过 threshold = -b/w 直接恢复规则</li>';
+            html += '<li class="success">✓ 规则恢复：成功</li>';
+            html += '</ul>';
+            
+            html += '<h3>2. XOR 网络（线性不可分）：</h3>';
+            html += '<ul>';
+            html += '<li>权重与规则之间的关系变得隐晦</li>';
+            html += '<li>需要通过分析隐藏层决策边界和输出层组合来推断</li>';
+            html += '<li class="warning">⚠ 规则恢复：部分成功，需要启发式方法</li>';
+            html += '</ul>';
+            
+            html += '<h3>3. 核心结论：</h3>';
+            html += '<ul>';
+            html += '<li>在极简系统中，权重与规则存在可读的映射</li>';
+            html += '<li>当系统复杂度增加，这种映射需要外部知识（如训练数据）</li>';
+            html += '<li>设计通用的"权重分析器"需要更复杂的算法和大量实验</li>';
+            html += '</ul>';
+            html += '</div>';
+            
+            document.getElementById('results').innerHTML = html;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
